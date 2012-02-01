@@ -1,0 +1,88 @@
+#!/bin/bash
+
+##
+## Loads up files with differences between working directory and index, or files
+## with conflicts.
+##
+
+#
+# Default Actions
+#
+
+# Command to run after loading first file
+diff_cmd="+Gdiff"
+
+# What to diff against (index by default)
+gdiff_target=""
+
+# How to filter status output to get filenames.
+# Get files modified in the work tree by default.
+awk_cmd='/^.M/ { print $2 }'
+
+main () {
+    gitstatfile=$(mktemp)
+    vimscriptdir=$(mktemp -d)
+    vimscript=$vimscriptdir/xx00
+    trap "rm -rf $gitstatfile $vimscriptdir" EXIT
+
+    git status -s > $gitstatfile || {
+    2>&1 echo "No git repo here."
+    exit 1
+    }
+
+    (cd $vimscriptdir; csplit -s $0 %--\%--\%--%+1)
+
+    # Conflict statuses:
+    #
+    # DD    unmerged, both deleted
+    # AU    unmerged, added by us
+    # UD    unmerged, deleted by them
+    # UA    unmerged, added by them
+    # DU    unmerged, deleted by us
+    # AA    unmerged, both added
+    # UU    unmerged, both modified
+
+    if grep -q '^[DAU][DAU]' $gitstatfile; then
+        cat <<EOF
+Loading up files with conflicts!
+(Ignoring files deleted both by us and them.)
+EOF
+        awk_cmd='/^U|^.U|^AA/ { print $2 }'
+    elif [[ "$@" = "--cached" ]]; then
+        echo "Comparing index to HEAD"
+        shift
+        awk_cmd='/^M/ { print $2 }'
+        diff_cmd=${diff_cmd}\ HEAD
+        gdiff_target=HEAD
+    else
+        echo "Comparing working tree to index"
+    fi
+    sleep 1
+    vim --cmd "let gdiff_target = '$gdiff_target'" \
+        --cmd "source $vimscript" \
+        "$diff_cmd" \
+        $(awk "$awk_cmd" $gitstatfile)
+
+    echo -e "\nNew results:\n"
+    git status
+
+}
+
+main $@
+exit 0
+# vim script from here!
+# --%--%--
+
+fu s:go(where)
+    diffo
+    on
+    try
+        exec a:where
+    catch /^Vim\%((\a\+)\)\=:E165/
+        q
+    endtry
+    exec "Gdiff " . g:gdiff_target
+endf
+
+command! Go  call s:go("next")
+command! Gop call s:go("prev")
