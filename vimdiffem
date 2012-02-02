@@ -9,11 +9,8 @@
 # Default Actions
 #
 
-# Command to run after loading first file
-diff_cmd="+Gdiff"
-
-# What to diff against (index by default)
-gdiff_target=""
+# Command to run for diffing
+gdiff_cmd="Gdiff"
 
 # How to filter status output to get filenames.
 # Get files modified in the work tree by default.
@@ -26,8 +23,8 @@ main () {
     trap "rm -rf $gitstatfile $vimscriptdir" EXIT
 
     git status -s > $gitstatfile || {
-    2>&1 echo "No git repo here."
-    exit 1
+        2>&1 echo "No git repo here."
+        exit 1
     }
 
     (cd $vimscriptdir; csplit -s $0 %--\%--\%--%+1)
@@ -52,15 +49,18 @@ EOF
         echo "Comparing index to HEAD"
         shift
         awk_cmd='/^M/ { print $2 }'
-        diff_cmd=${diff_cmd}\ HEAD
-        gdiff_target=HEAD
-    else
+        # HEAD | Index | Working
+        gdiff_cmd=${gdiff_cmd}\ HEAD\ \|${gdiff_cmd}
+    elif grep -q '^.M' $gitstatfile; then
         echo "Comparing working tree to index"
+    else
+        echo "No changes!"
+        return
     fi
     sleep 1
-    vim --cmd "let gdiff_target = '$gdiff_target'" \
+    vim --cmd "let gdiff_cmd = '$gdiff_cmd'" \
         --cmd "source $vimscript" \
-        "$diff_cmd" \
+        "+$gdiff_cmd" \
         $(awk "$awk_cmd" $gitstatfile)
 
     echo -e "\nNew results:\n"
@@ -74,14 +74,12 @@ exit 0
 # --%--%--
 
 fu s:go(where)
-    diffo
-    on
     try
         exec a:where
-    catch /^Vim\%((\a\+)\)\=:E165/
-        q
+        diffo
+        only
+        exec g:gdiff_cmd
     endtry
-    exec "Gdiff " . g:gdiff_target
 endf
 
 command! Go  call s:go("next")
