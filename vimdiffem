@@ -74,13 +74,14 @@ exit 0
 # --%--%--
 
 fu s:go(where)
-    try
-        exec a:where
-        diffo
-        only
-        exec g:gdiff_cmd
-    endtry
+    only
+    diffo
+    exec a:where
+    exec g:gdiff_cmd
 endf
 
 command! Go  call s:go("next")
+command! Gon call s:go("next")
 command! Gop call s:go("prev")
+command! Gor call s:go("rew")
+command! Gol call s:go("last")
