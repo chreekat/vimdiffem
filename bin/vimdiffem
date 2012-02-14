@@ -75,7 +75,6 @@ exit 0
 
 fu s:go(where)
     only
-    diffo
     exec a:where
     exec g:gdiff_cmd
 endf
