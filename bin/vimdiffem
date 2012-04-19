@@ -22,7 +22,7 @@ main () {
     vimscript=$vimscriptdir/xx00
     trap "rm -rf $gitstatfile $vimscriptdir" EXIT
 
-    git status -s > $gitstatfile || {
+    git -c color.status=off status -s > $gitstatfile || {
         2>&1 echo "No git repo here."
         exit 1
     }
