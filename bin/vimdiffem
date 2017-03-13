@@ -1,86 +1,55 @@
 #!/bin/bash
 
-##
-## Loads up files with differences between working directory and index, or files
-## with conflicts.
-##
+theOther=
+mergebase=
 
-#
-# Default Actions
-#
-
-# Command to run for diffing
-gdiff_cmd="Gdiff"
-
-# How to filter status output to get filenames.
-# Get files modified in the work tree by default.
-awk_cmd='/^.M/ { print $2 }'
-
-main () {
-    gitstatfile=$(mktemp)
-    vimscriptdir=$(mktemp -d)
-    vimscript=$vimscriptdir/xx00
-    trap "rm -rf $gitstatfile $vimscriptdir" EXIT
-
-    git -c color.status=off status -s > $gitstatfile || {
-        2>&1 echo "No git repo here."
-        exit 1
-    }
-
-    (cd $vimscriptdir; csplit -s $0 %--\%--\%--%+1)
-
-    # Conflict statuses:
-    #
-    # DD    unmerged, both deleted
-    # AU    unmerged, added by us
-    # UD    unmerged, deleted by them
-    # UA    unmerged, added by them
-    # DU    unmerged, deleted by us
-    # AA    unmerged, both added
-    # UU    unmerged, both modified
-
-    if grep -q '^[DAU][DAU]' $gitstatfile; then
-        cat <<EOF
-Loading up files with conflicts!
-(Ignoring files deleted both by us and them.)
-EOF
-        awk_cmd='/^U|^.U|^AA/ { print $2 }'
-    elif [[ "$@" = "--cached" ]]; then
-        echo "Comparing index to HEAD"
-        shift
-        awk_cmd='/^M/ { print $2 }'
-        # HEAD | Index | Working
-        gdiff_cmd=${gdiff_cmd}\ HEAD\ \|${gdiff_cmd}
-    elif grep -q '^.M' $gitstatfile; then
-        echo "Comparing working tree to index"
-    else
-        echo "No changes!"
-        return
+execVim () {
+    mbcmd=
+    movewin=
+    if [ -n "$mergebase" ]
+    then
+        mbcmd="com Gomb :Gdiff ${mergebase}"
+        movewin="|wincmd J"
     fi
-    sleep 1
-    vim --cmd "let gdiff_cmd = '$gdiff_cmd'" \
-        --cmd "source $vimscript" \
-        "+$gdiff_cmd" \
-        $(awk "$awk_cmd" $gitstatfile)
-
-    echo -e "\nNew results:\n"
-    git status
-
+    exec vim $@ \
+        -c "com God :Gdiff ${theOther}${movewin}" \
+        -c "com Go only|next|God" \
+        -c "com Goprev only|prev|God" \
+        -c "com Gorewind only|rewind|God" \
+        -c "$mbcmd" \
+        +God
 }
 
-main $@
-exit 0
-# vim script from here!
-# --%--%--
+# With no args, compare against the index.
+if [ -z "$1" ]
+then
+    # But, if there is a busted merge, compare those instead!
+    if (git status -s | grep '^U\|^.U')
+    then
+        # I don't know that ORIG_HEAD is the right one here for rebases...?
+        # MERGE_HEAD is obviously correct for merges, though...
+        if git rev-parse MERGE_HEAD >/dev/null 2>&1
+        then
+            mergebase=$(git merge-base HEAD MERGE_HEAD)
+        elif git rev-parse CHERRY_PICK_HEAD >/dev/null 2>&1
+        then
+            mergebase=$(git merge-base HEAD CHERRY_PICK_HEAD)
+        else
+            mergebase=$(git merge-base HEAD ORIG_HEAD)
+        fi
+        diffables=$(git status -s | awk '/^U|^.U/ { print $2 }')
+    else
+        diffables=$(git diff --name-only)
+    fi
+# Otherwise, compare against the given argument.
+else
+    theOther=$1
+    diffables=$(git diff --name-only $1)
+fi
 
-fu s:go(where)
-    only
-    exec a:where
-    exec g:gdiff_cmd
-endf
-
-command! Go  call s:go("next")
-command! Gon call s:go("next")
-command! Gop call s:go("prev")
-command! Gor call s:go("rew")
-command! Gol call s:go("last")
+if git diff --quiet $theOther
+then
+    2>&1 echo "Ain't no thing to be diffin"
+else
+    execVim $diffables
+fi
